@@ -1,0 +1,639 @@
+
+# ============================================================
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib.ticker import ScalarFormatter
+from pathlib import Path
+from docx import Document
+from docx.shared import Inches
+from docx.enum.section import WD_ORIENT
+
+# ------------------------------------------------------------
+# SETTINGS
+# ------------------------------------------------------------
+RAW_INPUT_FILE = "ERA5_Combined_with_CAMS_MODIS_S2_SZA_V0.csv"
+INPUT_FILE     = "ERA5_Combined_with_CAMS_MODIS_S2_SZA_V0_cleaned.csv"
+
+START_DATE = "2015-07-01"
+DATE_COL = "Date"
+PLATFORM_COL = "S2_platform"
+
+OUT_DIR = Path("FINAL_CHARTS")
+OUT_DIR.mkdir(exist_ok=True)
+
+# ------------------------------------------------------------
+# BANDS
+# ------------------------------------------------------------
+BANDS = ["B2", "B3", "B4", "B5", "B8A", "B9", "B11", "B12"]
+BAND_COLS = [f"S2_{b}_mean" for b in BANDS]
+
+BAND_COLORS = {
+    "B2": "#66B2FF",   # light blue
+    "B3": "#66CC99",   # light green
+    "B4": "#FF4D4D",   # red
+    "B5": "#C084FC",   # violet
+    "B8A": "#FFB7C5",
+    "B9": "#7FDBFF",   # light cyan (water vapour)
+    "B11": "#FF7F0E",  # light yellow
+    "B12": "#595959"   # dark gray
+}
+
+# ------------------------------------------------------------
+# HELPERS
+# ------------------------------------------------------------
+def auto_ylim(series):
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    s = s[s != 0]
+    if len(s) == 0:
+        return None
+    ymin, ymax = float(s.min()), float(s.max())
+    pad = (ymax - ymin) * 0.15 if ymax != ymin else (abs(ymin) * 0.1 + 1)
+    return ymin - pad, ymax + pad
+
+def make_yaxis_bold(ax):
+    # Make y-axis tick labels bold
+    for label in ax.get_yticklabels():
+        label.set_fontweight("bold")
+
+    # Make scientific offset text bold too (e.g. ×10^−3)
+    ax.yaxis.get_offset_text().set_fontweight("bold")
+
+def format_axes(ax):
+    ax.xaxis.set_major_locator(mdates.YearLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+
+    ax.tick_params(axis='x', which='major', rotation=45, length=8, width=1.6)
+    ax.tick_params(axis='x', which='minor', length=4, width=0.8)
+
+def enforce_equal_plot_area(fig, ax):
+    # Fixed margins so plot box width/height stays identical on every chart
+    fig.subplots_adjust(left=0.14, right=0.98, bottom=0.18, top=0.88)
+
+    # Keep scientific notation in original units, consistently formatted
+    ax.ticklabel_format(axis='y', style='sci', scilimits=(0, 0), useMathText=True)
+
+    # Fixed y-label position so label length does not shift the plot area
+    ax.yaxis.set_label_coords(-0.065, 0.5)
+
+    # Keep offset text readable
+    ax.yaxis.get_offset_text().set_size(10)
+
+    # Make y-axis values bold
+    make_yaxis_bold(ax)
+
+def clean_label(col):
+    c = col.lower()
+    if "lai" in c:
+        return "LAi"
+    if "duaod" in c:
+        return "CAMS DUAOD"
+    if ("cams" in c) and ("aod" in c):
+        return "CAMS AOD"
+    if "modis" in c and "aod" in c:
+        return "MODIS AOD"
+    if "ssrd" in c:
+        return "SSRD"
+    if "slhf" in c:
+        return "SLHF"
+    if "soil_moisture" in c:
+        return "Soil Moisture"
+    if "pressure" in c:
+        return "Surface Pressure"
+    if "humidity" in c:
+        return "Absolute Humidity"
+    if "evap" in c:
+        return "Total Evaporation"
+    if "water_vap" in c:
+        return "Total Column Water Vapour"
+    if "skin" in c:
+        return "Skin Temperature"
+    if "snow" in c:
+        return "Snow"
+    if "residual_ndvi" in c:
+        return "Residual NDVI"
+    if "sza" in c or "solar_zenith" in c:
+        return "Solar Zenith Angle"
+    if "albedo" in c:
+        return "Albedo"
+    return col.replace("_", " ")
+
+def remove_band_outliers_iqr(df, band_cols):
+    """
+    Remove rows having outliers in ANY available band column using IQR rule.
+    Applied only to cleaned reflectance charts, not RAW chart.
+    This includes B9 when S2_B9_mean is present.
+    """
+    available = [c for c in band_cols if c in df.columns]
+    if not available or len(df) == 0:
+        return df.copy()
+
+    keep_mask = pd.Series(True, index=df.index)
+
+    for c in available:
+        y = pd.to_numeric(df[c], errors="coerce")
+        valid = y.notna()
+
+        if valid.sum() < 4:
+            continue
+
+        q1 = y[valid].quantile(0.25)
+        q3 = y[valid].quantile(0.75)
+        iqr = q3 - q1
+
+        if pd.isna(iqr) or iqr == 0:
+            continue
+
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+
+        keep_this = (~valid) | ((y >= lower) & (y <= upper))
+        keep_mask &= keep_this
+
+    return df.loc[keep_mask].copy()
+
+# ------------------------------------------------------------
+# PLOT: MULTI-BAND
+# ------------------------------------------------------------
+def plot_multiband(data, title, filename, x_start, x_end):
+    fig, ax = plt.subplots(figsize=(15, 5))
+
+    plotted_labels = []
+
+    for b in BANDS:
+        col = f"S2_{b}_mean"
+        if col not in data.columns:
+            continue
+
+        y = pd.to_numeric(data[col], errors="coerce")
+        m = y.notna() & (y != 0) & data[DATE_COL].notna()
+        if m.sum() == 0:
+            continue
+
+        ax.plot(
+            data.loc[m, DATE_COL],
+            y.loc[m],
+            linestyle="None",
+            marker="o",
+            markersize=2.5,
+            label=b,
+            color=BAND_COLORS.get(b, None)
+        )
+        plotted_labels.append(b)
+
+    ax.set_title(title)
+    ax.set_ylabel("Reflectance")
+    ax.set_xlabel("Date")
+    ax.set_xlim(x_start, x_end)
+
+    # Keep original y values, auto scale from actual data
+    y_all = []
+    for c in BAND_COLS:
+        if c in data.columns:
+            yy = pd.to_numeric(data[c], errors="coerce")
+            yy = yy[(yy.notna()) & (yy != 0)]
+            if len(yy) > 0:
+                y_all.append(yy)
+
+    if y_all:
+        lim = auto_ylim(pd.concat(y_all, axis=0))
+        if lim:
+            ax.set_ylim(*lim)
+
+    # Consistent y-axis formatter in original units
+    formatter = ScalarFormatter(useMathText=True)
+    formatter.set_scientific(True)
+    formatter.set_powerlimits((0, 0))
+    ax.yaxis.set_major_formatter(formatter)
+
+    # Keep legend inside plot area
+    if plotted_labels:
+        ax.legend(
+            ncol=min(len(plotted_labels), 8),
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.995),
+            frameon=False,
+            borderaxespad=0.0
+        )
+
+    format_axes(ax)
+    enforce_equal_plot_area(fig, ax)
+
+    plt.savefig(OUT_DIR / filename, dpi=300)
+    plt.close()
+
+# ------------------------------------------------------------
+# PLOT: B8A + B9 ONLY
+# ------------------------------------------------------------
+def plot_b8a_b9_only(data, title, filename, x_start, x_end):
+    fig, ax = plt.subplots(figsize=(15, 5))
+
+    selected_bands = ["B8A", "B9"]
+    plotted_labels = []
+
+    for b in selected_bands:
+        col = f"S2_{b}_mean"
+        if col not in data.columns:
+            continue
+
+        y = pd.to_numeric(data[col], errors="coerce")
+        m = y.notna() & (y != 0) & data[DATE_COL].notna()
+        if m.sum() == 0:
+            continue
+
+        ax.plot(
+            data.loc[m, DATE_COL],
+            y.loc[m],
+            linestyle="None",
+            marker="o",
+            markersize=2.5,
+            label=b,
+            color=BAND_COLORS.get(b, None)
+        )
+        plotted_labels.append(b)
+
+    ax.set_title(title)
+    ax.set_ylabel("Reflectance")
+    ax.set_xlabel("Date")
+    ax.set_xlim(x_start, x_end)
+
+    y_all = []
+    for b in selected_bands:
+        c = f"S2_{b}_mean"
+        if c in data.columns:
+            yy = pd.to_numeric(data[c], errors="coerce")
+            yy = yy[(yy.notna()) & (yy != 0)]
+            if len(yy) > 0:
+                y_all.append(yy)
+
+    if y_all:
+        lim = auto_ylim(pd.concat(y_all, axis=0))
+        if lim:
+            ax.set_ylim(*lim)
+
+    formatter = ScalarFormatter(useMathText=True)
+    formatter.set_scientific(True)
+    formatter.set_powerlimits((0, 0))
+    ax.yaxis.set_major_formatter(formatter)
+
+    if plotted_labels:
+        ax.legend(
+            ncol=2,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.995),
+            frameon=False,
+            borderaxespad=0.0
+        )
+
+    format_axes(ax)
+    enforce_equal_plot_area(fig, ax)
+
+    plt.savefig(OUT_DIR / filename, dpi=300)
+    plt.close()
+
+# ------------------------------------------------------------
+# PLOT: ENV PARAM (ONLY Sentinel-2A rows, on B2 dates, abs, skip zeros)
+# ------------------------------------------------------------
+def plot_parameter(df_clean, col, x_start, x_end):
+    if col not in df_clean.columns:
+        return None
+
+    data = df_clean.copy()
+
+    # Keep only Sentinel-2A rows for parameter charts
+    if PLATFORM_COL in data.columns:
+        data = data[
+            data[PLATFORM_COL].astype(str).str.contains("2A", case=False, na=False)
+        ].copy()
+
+    if len(data) == 0:
+        return None
+
+    if "S2_B2_mean" in data.columns:
+        mask_b2 = pd.to_numeric(data["S2_B2_mean"], errors="coerce").notna()
+        data = data.loc[mask_b2].copy()
+
+    if len(data) == 0:
+        return None
+
+    y = pd.to_numeric(data[col], errors="coerce").abs()
+    m = y.notna() & (y != 0) & data[DATE_COL].notna()
+    if m.sum() == 0:
+        return None
+
+    fig, ax = plt.subplots(figsize=(15, 4))
+    ax.plot(
+        data.loc[m, DATE_COL],
+        y.loc[m],
+        linestyle="None",
+        marker="o",
+        markersize=3
+    )
+
+    label = clean_label(col)
+    ax.set_title(label)
+    ax.set_ylabel(label)
+    ax.set_xlabel("Date")
+    ax.set_xlim(x_start, x_end)
+
+    if "snow" in col.lower():
+        ax.set_ylim(0.95, 1.05)
+    else:
+        lim = auto_ylim(y)
+        if lim:
+            ax.set_ylim(*lim)
+
+    formatter = ScalarFormatter(useMathText=True)
+    formatter.set_scientific(True)
+    formatter.set_powerlimits((0, 0))
+    ax.yaxis.set_major_formatter(formatter)
+
+    format_axes(ax)
+    enforce_equal_plot_area(fig, ax)
+
+    fname = f"{label.replace(' ', '_')}.png"
+    out_path = OUT_DIR / fname
+    plt.savefig(out_path, dpi=300)
+    plt.close()
+    return out_path
+
+# ------------------------------------------------------------
+# PLOT: CCI + KAI + FII together (ONE chart)
+# ------------------------------------------------------------
+def plot_cci_kai_fii_together(
+    df_clean,
+    band_outlier_mask,
+    x_start,
+    x_end,
+    title="S2 Indices (CCI, KAI, FII)",
+    filename="S2_CCI_KAI_FII_Together.png"
+):
+    cols = ["S2_CCI_mean", "S2_KAI_mean", "S2_FII_mean"]
+    cols = [c for c in cols if c in df_clean.columns]
+    if not cols:
+        print("[WARN] None of S2_CCI_mean / S2_KAI_mean / S2_FII_mean found. Skipping combined plot.")
+        return None
+
+    colors = {
+        "S2_CCI_mean": "tab:blue",
+        "S2_KAI_mean": "tab:orange",
+        "S2_FII_mean": "tab:green"
+    }
+    labels = {
+        "S2_CCI_mean": "CCI",
+        "S2_KAI_mean": "KAI",
+        "S2_FII_mean": "FII"
+    }
+
+    # Keep only Sentinel-2A rows for parameter/index chart
+    data = df_clean.copy()
+    local_mask = pd.Series(False, index=data.index)
+
+    if PLATFORM_COL in data.columns:
+        local_mask = data[PLATFORM_COL].astype(str).str.contains("2A", case=False, na=False)
+    else:
+        local_mask = pd.Series(True, index=data.index)
+
+    if "S2_B2_mean" in data.columns:
+        mask_b2 = pd.to_numeric(data["S2_B2_mean"], errors="coerce").notna()
+    else:
+        mask_b2 = pd.Series(True, index=data.index)
+
+    mask_ok = local_mask & mask_b2 & (~band_outlier_mask) & data[DATE_COL].notna()
+
+    fig, ax = plt.subplots(figsize=(15, 4))
+
+    plotted = False
+    y_all = []
+
+    for c in cols:
+        y = pd.to_numeric(data.loc[mask_ok, c], errors="coerce")
+        m = y.notna() & (y != 0)
+        if m.sum() == 0:
+            continue
+
+        ax.plot(
+            data.loc[mask_ok, DATE_COL].loc[m],
+            y.loc[m],
+            linestyle="None",
+            marker="o",
+            markersize=3,
+            color=colors.get(c, None),
+            label=labels.get(c, c)
+        )
+
+        y_all.append(y)
+        plotted = True
+
+    if not plotted:
+        print("[WARN] No valid points for combined CCI/KAI/FII after masking. Skipping.")
+        plt.close()
+        return None
+
+    ax.set_title(title)
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Index Value")
+    ax.set_xlim(x_start, x_end)
+
+    lim = auto_ylim(pd.concat(y_all, axis=0))
+    if lim:
+        ax.set_ylim(*lim)
+
+    formatter = ScalarFormatter(useMathText=True)
+    formatter.set_scientific(True)
+    formatter.set_powerlimits((0, 0))
+    ax.yaxis.set_major_formatter(formatter)
+
+    format_axes(ax)
+    enforce_equal_plot_area(fig, ax)
+
+    ax.legend(loc="lower right", ncol=3, frameon=True)
+
+    out_path = OUT_DIR / filename
+    plt.savefig(out_path, dpi=300)
+    plt.close()
+    print(f"[OK] Saved combined CCI/KAI/FII: {out_path}")
+    return out_path
+
+# ============================================================
+# 0) RAW data: load + compute global END_DATE
+# ============================================================
+df_raw = pd.read_csv(RAW_INPUT_FILE)
+df_raw[DATE_COL] = pd.to_datetime(df_raw[DATE_COL], errors="coerce")
+df_raw = df_raw[df_raw[DATE_COL].notna()].copy()
+df_raw = df_raw[df_raw[DATE_COL] >= pd.Timestamp(START_DATE)].copy()
+
+for c in BAND_COLS:
+    if c in df_raw.columns:
+        df_raw[c] = pd.to_numeric(df_raw[c], errors="coerce")
+
+# ============================================================
+# 1) CLEANED data: load + compute global axis range
+# ============================================================
+dfc = pd.read_csv(INPUT_FILE)
+
+print("\n[INFO] Columns detected in CLEANED CSV:")
+print(dfc.columns.tolist())
+print("[INFO] Total columns:", len(dfc.columns))
+
+dfc[DATE_COL] = pd.to_datetime(dfc[DATE_COL], errors="coerce")
+dfc = dfc[dfc[DATE_COL].notna()].copy()
+dfc = dfc[dfc[DATE_COL] >= pd.Timestamp(START_DATE)].copy()
+
+# Global x-axis limits
+x_start = pd.Timestamp(START_DATE)
+x_end = max(dfc[DATE_COL].max(), df_raw[DATE_COL].max())
+
+# Band outlier/missing mask based on cleaned bands
+# This includes B9 too, because BAND_COLS includes S2_B9_mean
+if all(c in dfc.columns for c in BAND_COLS):
+    BAND_OUTLIER_MASK_CLEAN = dfc[BAND_COLS].isna().any(axis=1)
+else:
+    BAND_OUTLIER_MASK_CLEAN = pd.Series(False, index=dfc.index)
+
+# Additional IQR-based outlier removal for cleaned reflectance charts
+# This removes outliers for B9 as well
+dfc_bands_clean = remove_band_outliers_iqr(dfc, BAND_COLS)
+
+# ============================================================
+# 2) RAW multi-band chart (NO outlier removal)
+# ============================================================
+plot_multiband(
+    df_raw,
+    "Sentinel-2 Reflectance (RAW, No Outlier Removal) — All Platforms",
+    "Chart0_Bands_FULL_RAW_NoOutlierRemoval.png",
+    x_start,
+    x_end
+)
+
+# ============================================================
+# 3) CLEANED band charts (with outlier removal, including B9)
+# ============================================================
+plot_multiband(
+    dfc_bands_clean,
+    "Sentinel-2 Reflectance (All Platforms)",
+    "Chart1_Bands_FULL.png",
+    x_start,
+    x_end
+)
+
+if PLATFORM_COL in dfc_bands_clean.columns:
+    plot_multiband(
+        dfc_bands_clean[dfc_bands_clean[PLATFORM_COL].astype(str).str.contains("2A", na=False)],
+        "Sentinel-2A Reflectance",
+        "Chart2_Bands_S2A.png",
+        x_start,
+        x_end
+    )
+    plot_multiband(
+        dfc_bands_clean[dfc_bands_clean[PLATFORM_COL].astype(str).str.contains("2B", na=False)],
+        "Sentinel-2B Reflectance",
+        "Chart3_Bands_S2B.png",
+        x_start,
+        x_end
+    )
+
+# Separate B8A + B9 chart using cleaned data with outliers removed
+plot_b8a_b9_only(
+    dfc_bands_clean,
+    "Sentinel-2 Reflectance (B8A and B9 Only)",
+    "Chart4_B8A_B9_Only.png",
+    x_start,
+    x_end
+)
+
+# ============================================================
+# 4) Environmental parameters (exclude CCI/KAI/FII individually)
+#    ONLY Sentinel-2A data will be plotted
+# ============================================================
+PARAMETERS = [
+    "SZA",
+    "ssrd",
+    "slhf",
+    "skin_temperature",
+    "albedo",
+    "soil_moisture",
+    "surface_pressure",
+    "absolute_humidity",
+    "total_evaporation",
+    "total_column_water_vapour",
+    "S2_Residual_NDVI_mean",
+    "lai",
+    "MODIS_AOD_055_mean",
+    "cams_duaod",
+    "cams_aod",
+    "snow"
+]
+
+SKIP_INDIVIDUAL = {"S2_CCI_mean", "S2_KAI_mean", "S2_FII_mean"}
+
+for col in dfc.columns:
+    if col in SKIP_INDIVIDUAL:
+        continue
+    for p in PARAMETERS:
+        if p.lower() in col.lower():
+            plot_parameter(dfc, col, x_start, x_end)
+            break
+
+# One combined chart for indices
+plot_cci_kai_fii_together(dfc, BAND_OUTLIER_MASK_CLEAN, x_start, x_end)
+
+# ============================================================
+# 5) Create A3 Landscape Word (2 charts per page) in scientific order
+# ============================================================
+doc = Document()
+section = doc.sections[0]
+section.orientation = WD_ORIENT.LANDSCAPE
+section.page_width = Inches(16.54)
+section.page_height = Inches(11.69)
+section.left_margin = Inches(0.4)
+section.right_margin = Inches(0.4)
+section.top_margin = Inches(0.4)
+section.bottom_margin = Inches(0.4)
+
+ordered_sequence = [
+    "Chart0_Bands_FULL_RAW_NoOutlierRemoval.png",
+    "Chart1_Bands_FULL.png",
+    "Chart2_Bands_S2A.png",
+    "Chart3_Bands_S2B.png",
+    "Chart4_B8A_B9_Only.png",
+    "Solar_Zenith_Angle.png",
+    "SSRD.png",
+    "SLHF.png",
+    "Skin_Temperature.png",
+    "Albedo.png",
+    "Soil_Moisture.png",
+    "Surface_Pressure.png",
+    "Absolute_Humidity.png",
+    "Total_Evaporation.png",
+    "Total_Column_Water_Vapour.png",
+    "Residual_NDVI.png",
+    "LAi.png",
+    "MODIS_AOD.png",
+    "CAMS_DUAOD.png",
+    "CAMS_AOD.png",
+    "Snow.png",
+    "S2_CCI_KAI_FII_Together.png"
+]
+
+charts_per_page = 2
+image_width = Inches(15.3)
+
+count = 0
+for filename in ordered_sequence:
+    img_path = OUT_DIR / filename
+    if img_path.exists():
+        doc.add_picture(str(img_path), width=image_width)
+        doc.add_paragraph("")
+        count += 1
+        if count % charts_per_page == 0:
+            doc.add_page_break()
+
+A3_DOC_PATH = "FINAL_CHARTS/Cuprite_A3_Landscape_2charts_per_page_15mar26_v1.docx"
+doc.save(A3_DOC_PATH)
+
+print("\n✅ Done.")
+print("📄 Word saved at:", A3_DOC_PATH)
