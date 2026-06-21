@@ -51,3 +51,4 @@ This repository provides the complete workflow for data extraction, processing, 
 
 ## Notes
 This repository is intended to support transparency and reproducibility of the published results.
+Figures were generated using standard plotting tools (Python and Excel) based on the processed datasets produced by the provided scripts.
