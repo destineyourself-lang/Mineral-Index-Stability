@@ -3,7 +3,7 @@ This repository contains scripts used in the study:
 
 **Solar Geometry and Environmental Controls on Temporal Variability of Sentinel‑2 Reflectance and Mineral Indices**
 
-The repository supports data extraction, preprocessing, statistical analysis, and figure generation for the manuscript.
+The repository supports data extraction, preprocessing and statistical analysis for the manuscript.
 
 ---
 
@@ -21,13 +21,11 @@ Scripts are organized by functionality within the `scripts/` directory.
 - Multi‑temporal Sentinel‑2 surface reflectance processing  
 - Integration of ERA5‑Land and CAMS environmental variables  
 - Partial Least Squares Regression (PLSR) analysis  
-- Generation of figures presented in the manuscript  
-
 ---
 
 ## Data Sources
 
-The following datasets are publicly available and are **not included** in this repository due to size and licensing constraints:
+The following datasets are publicly available and are **not included** in this repository 
 
 - Sentinel‑2 Level‑2A surface reflectance (ESA Copernicus)
 - ERA5‑Land reanalysis data (ECMWF)
