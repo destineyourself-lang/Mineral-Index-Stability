@@ -1,4 +1,4 @@
-# Solar Geometry and Environmental Controls on Temporal Variability of Sentinel‑2 Reflectance and Mineral Indices
+# Environmental controls on the stability of mineral indices and implications for reliable mineral mapping
 This repository contains scripts used in the study:
 
 **Solar Geometry and Environmental Controls on Temporal Variability of Sentinel‑2 Reflectance and Mineral Indices**
