@@ -1,52 +1,178 @@
-# Mineral Index Stability
-This repository contains scripts used in the study:
+# Environmental Controls on the Stability of Mineral Indices and Implications for Reliable Mineral Mapping
 
-**Solar Geometry and Environmental Controls on Temporal Variability of Sentinel‑2 Reflectance and Mineral Indices**
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22096449.svg)/doi.org/10.5281/zenodo.22096449)
 
-The repository supports data extraction, preprocessing and statistical analysis for the manuscript.
+## Overview
+
+This repository contains the Google Earth Engine (GEE) and Python scripts used in the study:
+
+**"Environmental Controls on the Stability of Mineral Indices and Implications for Reliable Mineral Mapping"**
+
+The workflow integrates Sentinel-2 surface reflectance observations with meteorological, atmospheric, and environmental datasets to investigate temporal variability in mineral indices and assess their suitability for reliable geological mapping.
+
+---
+
+## Study Objectives
+
+The objectives of this study are:
+
+- Quantify temporal variability in Sentinel-2 reflectance.
+- Evaluate the stability of mineral-sensitive spectral indices.
+- Investigate environmental controls affecting index stability.
+- Compare Sentinel-2A and Sentinel-2B observations.
+- Assess implications for operational mineral mapping.
+- Develop a transferable framework applicable to future hyperspectral missions.
+
+---
+
+## Data Sources
+
+### Sentinel-2
+- Harmonized Surface Reflectance (S2_SR_HARMONIZED)
+- Sentinel-2A and Sentinel-2B
+- Reflectance bands B1 to B12
+
+### ERA5-Land
+- Air temperature
+- Surface temperature
+- Soil moisture
+- Precipitation
+- Absolute humidity
+
+### CAMS Reanalysis
+- Aerosol Optical Depth (AOD)
+- Dust Aerosol Optical Depth (DUAOD)
+
+### MODIS
+- Aerosol Optical Thickness (AOT)
+
+---
+
+## Workflow
+
+```text
+ERA5 Grid Selection
+        ↓
+AOI Selection
+        ↓
+Sentinel-2 Data Extraction
+        ↓
+Cloud & Vegetation Masking
+        ↓
+Spectral Index Calculation
+        ↓
+ERA5 Environmental Variables
+        ↓
+CAMS Atmospheric Variables
+        ↓
+Data Integration
+        ↓
+Temporal Analysis
+        ↓
+PLSR Modelling
+        ↓
+Publication Figures
+```
 
 ---
 
 ## Repository Structure
 
-### Scripts
-- **Google Earth Engine (GEE)** scripts for extracting Sentinel‑2 surface reflectance, solar geometry, ERA5‑Land meteorological variables, and CAMS aerosol optical depth.
-- **Python** scripts for data preprocessing, time‑series analysis, and Partial Least Squares Regression (PLSR).
-
-Scripts are organized by functionality within the `scripts/` directory.
+```text
+scripts/
+├── gee/
+│   ├── ERA5-Land extraction
+│   ├── Sentinel-2 processing
+│   ├── SZA extraction
+│   └── Environmental variable retrieval
+│
+└── python/
+    ├── Data preprocessing
+    ├── Dataset merging
+    ├── Visualization
+    ├── Time-series analysis
+    ├── PLSR analysis
+    └── Figure generation
+```
 
 ---
 
-## Analyses Included
-- Multi‑temporal Sentinel‑2 surface reflectance processing  
-- Integration of ERA5‑Land and CAMS environmental variables  
-- Partial Least Squares Regression (PLSR) analysis  
+## Software Requirements
+
+### Google Earth Engine
+
+- JavaScript API
+- Sentinel-2 Harmonized Collection
+- ERA5-Land
+- CAMS datasets
+
+### Python Packages
+
+```bash
+pandas
+numpy
+matplotlib
+seaborn
+scikit-learn
+geopandas
+xarray
+python-docx
+openpyxl
+```
+
 ---
 
-## Data Sources
+## Key Analyses
 
-The following datasets are publicly available and are **not included** in this repository 
-
-- Sentinel‑2 Level‑2A surface reflectance (ESA Copernicus)
-- ERA5‑Land reanalysis data (ECMWF)
-- CAMS atmospheric reanalysis data (Copernicus Atmosphere Monitoring Service)
-
-All datasets were accessed via Google Earth Engine or official data portals.
+- Sentinel-2 Reflectance Variability Assessment
+- Sentinel-2A vs Sentinel-2B Comparison
+- Environmental Driver Analysis
+- Aerosol and Atmospheric Effects
+- Mineral Index Stability Evaluation
+- Partial Least Squares Regression (PLSR)
 
 ---
 
 ## Reproducibility
 
-This repository provides the complete workflow for data extraction, processing, and analysis required to reproduce the results presented in the manuscript. Raw datasets must be obtained independently from the original data providers.
+All scripts required to reproduce the analyses presented in the manuscript are provided in this repository.
+
+Users may adapt the workflow to different regions by modifying:
+
+- Area of Interest (AOI)
+- Study period
+- Environmental variables
+- Mineral indices
 
 ---
 
-## Requirements
-- Python (with standard scientific libraries such as NumPy, Pandas, Matplotlib, and scikit‑learn)
-- Google Earth Engine account and API access
+## Citation
+
+If you use this repository, please cite:
+
+**Jawad, M. (2026).**  
+*Environmental Controls on the Stability of Mineral Indices and Implications for Reliable Mineral Mapping.*
+
+Repository DOI:
+
+https://doi.org/10.5281/zenodo.22096449
 
 ---
 
-## Notes
-This repository is intended to support transparency and reproducibility of the published results.
-Figures were generated using standard plotting tools (Python and Excel) based on the processed datasets produced by the provided scripts.
+## Repository DOI
+
+**Zenodo Archive**
+
+https://doi.org/10.5281/zenodo.22096449
+
+---
+
+## GitHub Repository
+
+https://github.com/destineyourself-lang/Mineral-Index-Stability
+
+---
+
+## License
+
+This repository is provided for academic and research purposes.
