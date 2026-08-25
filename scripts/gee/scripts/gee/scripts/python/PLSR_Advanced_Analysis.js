@@ -1,295 +1,530 @@
-Advanced PLSR Analysis Script-Python
 # ============================================================
-# ADVANCED PLSR ANALYSIS - CLEAN VERSION
-# ============================================================
+# PLSR FIGURE
 
 import pandas as pd
 import numpy as np
-from pathlib import Path
-
 import matplotlib.pyplot as plt
 import seaborn as sns
+from pathlib import Path
 
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import r2_score, mean_squared_error
-from sklearn.model_selection import KFold, cross_val_predict
+# ============================================================
+# STYLE
+# ============================================================
+
+sns.set_theme(style="white")
+
+plt.rcParams.update({
+    "font.family": "sans-serif",
+    "font.sans-serif": [
+        "Arial",
+        "Helvetica",
+        "DejaVu Sans"
+    ],
+
+    "font.size": 11,
+
+    "axes.titlesize": 16,
+    "axes.titleweight": "bold",
+
+    "axes.labelsize": 13,
+    "axes.labelweight": "bold",
+
+    "xtick.labelsize": 11,
+    "ytick.labelsize": 11,
+
+    "figure.dpi": 300,
+    "savefig.dpi": 600
+})
 
 # ============================================================
 # INPUT
 # ============================================================
 
-INPUT_FILE = "ERA5_Combined_with_CAMS_MODIS_S2_SZA_V0_cleaned.csv"
-DATE_COL = "Date"
-PLATFORM_COL = "S2_platform"
+INPUT_FILE = Path(
+    "/home/jovyan/Desktop/PLSR_Advanced_Results _v2.csv"
+)
 
-OUT_DIR = Path("PLSR_ADVANCED_OUTPUT")
+if not INPUT_FILE.exists():
+    raise FileNotFoundError(
+        f"Cannot find file:\n{INPUT_FILE}"
+    )
+
+df = pd.read_csv(INPUT_FILE)
+
+# ============================================================
+# OUTPUT
+# ============================================================
+
+OUT_DIR = Path(
+    "/home/jovyan/Desktop/PLSR_FIGURES"
+)
+
 OUT_DIR.mkdir(exist_ok=True)
 
 # ============================================================
-# LOAD DATA
+# CLEAN DATA
 # ============================================================
 
-df = pd.read_csv(INPUT_FILE)
-df[DATE_COL] = pd.to_datetime(df[DATE_COL], errors="coerce")
-df = df[df[DATE_COL].notna()].copy()
-
-# Sentinel-2A only
-df = df[df[PLATFORM_COL].astype(str).str.contains("2A", na=False)].copy()
-
-# Time filter
-df = df[df[DATE_COL] >= "2015-07-01"].copy()
+df = df.dropna(
+    subset=[
+        "Season",
+        "R2_CV",
+        "Band",
+        "Parameter"
+    ]
+)
 
 # ============================================================
-# BANDS
+# BAND ORDER
 # ============================================================
 
-BANDS = {
-    "B2": "S2_B2_mean",
-    "B3": "S2_B3_mean",
-    "B4": "S2_B4_mean",
-    "B5": "S2_B5_mean",
-    "B8A": "S2_B8A_mean",
-    "B9": "S2_B9_mean",
-    "B11": "S2_B11_mean",
-    "B12": "S2_B12_mean"
+band_order = [
+    "B2",
+    "B3",
+    "B4",
+    "B5",
+    "B8A",
+    "B9",
+    "B11",
+    "B12"
+]
+
+# ============================================================
+# PARAMETER LABELS
+# ============================================================
+
+label_map = {
+    "Soil_Moisture": "SM",
+    "Soil Moisture": "SM",
+    "Residual NDVI": "NDVI",
+    "CAMS AOD": "AOD",
+    "TCWV": "TCWV"
 }
 
 # ============================================================
-# PREDICTORS
+# SEASON LABELS
 # ============================================================
 
-PREDICTORS = {
-    "Soil_Moisture": "soil_moisture_L1_19_m3/m3",
-    "CAMS_AOD": "CAMS_aod550",
-    "TCWV": "total_column_water_vapour_19_kgm2",
-    "Residual_NDVI": "S2_Residual_NDVI_mean"
+season_label_map = {
+    "FULL_2015_2026": "2015–2026",
+    "Feb01_Jun15": "Feb–Jun",
+    "Jun15_Dec15": "Jun–Dec",
+    "Apr15_Jun15": "Apr–Jun",
+    "Nov15_Jan15": "Nov–Jan"
 }
 
-# ============================================================
-# NUMERIC CONVERSION
-# ============================================================
-
-for c in list(BANDS.values()) + list(PREDICTORS.values()):
-    if c in df.columns:
-        df[c] = pd.to_numeric(df[c], errors="coerce")
+df["Season_Label"] = (
+    df["Season"]
+    .map(season_label_map)
+    .fillna(df["Season"])
+)
 
 # ============================================================
-# CLASSIFIERS
+# FIGURE LAYOUT
 # ============================================================
 
-def classify_influence(x):
-    x = abs(x)
-    if x < 0.10:
-        return "Negligible"
-    elif x < 0.25:
-        return "Weak"
-    elif x < 0.40:
-        return "Moderate"
-    elif x < 0.60:
-        return "Strong"
+fig = plt.figure(
+    figsize=(8.5, 10)
+)
+
+gs = fig.add_gridspec(
+    2,
+    1,
+    height_ratios=[0.90, 1.10],
+    hspace=0.28
+)
+
+ax1 = fig.add_subplot(gs[0])
+ax2 = fig.add_subplot(gs[1])
+
+# ============================================================
+# PANEL A
+# ============================================================
+
+coef = (
+    df.pivot_table(
+        index="Band",
+        columns="Parameter",
+        values="Coefficient",
+        aggfunc="mean"
+    )
+)
+
+coef = coef.reindex(band_order)
+
+coef.columns = [
+    label_map.get(c, c)
+    for c in coef.columns
+]
+
+# ------------------------------------------------------------
+# ABSOLUTE VALUES FOR COLORS
+# ------------------------------------------------------------
+
+coef_abs = coef.abs()
+
+heat = sns.heatmap(
+    coef_abs,
+
+    cmap="YlOrRd",
+
+    annot=coef,
+    fmt=".2f",
+
+    linewidths=0.5,
+    linecolor="white",
+
+    annot_kws={
+        "fontsize": 10,
+        "fontweight": "bold"
+    },
+
+    cbar_kws={
+        "label": "|Standardized Coefficient|",
+        "shrink": 0.88
+    },
+
+    ax=ax1
+)
+
+# ------------------------------------------------------------
+# AUTOMATIC TEXT COLOR
+# ------------------------------------------------------------
+
+for text in heat.texts:
+
+    try:
+        value = abs(float(text.get_text()))
+    except:
+        continue
+
+    if value >= 0.40:
+        text.set_color("white")
     else:
-        return "Very Strong"
+        text.set_color("black")
 
+# ------------------------------------------------------------
+# PANEL A FORMATTING
+# ------------------------------------------------------------
 
-def classify_vip(v):
-    if v < 0.8:
-        return "Low"
-    elif v < 1.0:
-        return "Moderate"
-    else:
-        return "High"
+ax1.set_title(
+    "A  Relative Influence of Environmental Drivers",
+    loc="left",
+    pad=12
+)
 
-# ============================================================
-# VIP FUNCTION
-# ============================================================
+ax1.set_xlabel("")
+ax1.set_ylabel("Sentinel-2 Bands")
 
-def calculate_vip(pls):
-    t = pls.x_scores_
-    w = pls.x_weights_
-    q = pls.y_loadings_
+for label in ax1.get_xticklabels():
 
-    p, h = w.shape
-    ss = np.diag(t.T @ t @ q.T @ q)
-    total_ss = np.sum(ss)
+    label.set_rotation(0)
+    label.set_fontweight("bold")
+    label.set_color("black")
 
-    vip = np.zeros(p)
+for label in ax1.get_yticklabels():
 
-    for i in range(p):
-        weight = [(w[i, j] ** 2) * ss[j] for j in range(h)]
-        vip[i] = np.sqrt(p * np.sum(weight) / total_ss)
+    label.set_fontweight("bold")
+    label.set_color("black")
 
-    return vip
-
-# ============================================================
-# SEASON FILTER
-# ============================================================
-
-def seasonal_filter(data, sm, sd, em, ed):
-    mask = []
-
-    for d in data[DATE_COL]:
-        md = (d.month, d.day)
-        start = (sm, sd)
-        end = (em, ed)
-
-        if start <= end:
-            mask.append(start <= md <= end)
-        else:
-            mask.append(md >= start or md <= end)
-
-    return data[np.array(mask)].copy()
+ax1.tick_params(
+    axis="both",
+    colors="black"
+)
 
 # ============================================================
-# SEASONS
+# PANEL B
 # ============================================================
 
-SEASONS = {
-    "FULL_2015_2026": None,
-    "Feb01_Jun15": (2, 1, 6, 15),
-    "Jun15_Dec15": (6, 15, 12, 15),
-    "Apr15_Jun15": (4, 15, 6, 15),
-    "Nov15_Jan15": (11, 15, 1, 15)
-}
+r2 = df[
+    ["Season_Label", "R2_CV"]
+].dropna()
+
+season_order = [
+    x for x in [
+        "2015–2026",
+        "Feb–Jun",
+        "Jun–Dec",
+        "Apr–Jun",
+        "Nov–Jan"
+    ]
+    if x in r2["Season_Label"].unique()
+]
+
+BOX_COLOR = "#73C2FB"
+
+sns.boxplot(
+    data=r2,
+
+    x="Season_Label",
+    y="R2_CV",
+
+    order=season_order,
+
+    color=BOX_COLOR,
+
+    width=0.60,
+
+    showfliers=False,
+
+    linewidth=1.6,
+
+    medianprops={
+        "color": "#08306B",
+        "linewidth": 2.7
+    },
+
+    whiskerprops={
+        "linewidth": 1.5
+    },
+
+    capprops={
+        "linewidth": 1.5
+    },
+
+    ax=ax2
+)
 
 # ============================================================
-# PLSR FUNCTION
+# MEANS
 # ============================================================
 
-def run_plsr(data, season):
+means = (
+    r2.groupby("Season_Label")["R2_CV"]
+    .mean()
+    .reindex(season_order)
+)
 
-    results = []
-    X_cols = list(PREDICTORS.values())
+ax2.scatter(
+    np.arange(len(means)),
+    means.values,
 
-    data = data.dropna(subset=X_cols)
-    if len(data) < 10:
-        return None
+    marker="D",
 
-    X = StandardScaler().fit_transform(data[X_cols])
+    s=100,
 
-    for band, col in BANDS.items():
+    facecolor="#FF8C42",
 
-        if col not in data.columns:
-            continue
+    edgecolor="black",
 
-        y = pd.to_numeric(data[col], errors="coerce")
-        valid = y.notna()
+    linewidth=1.2,
 
-        if valid.sum() < 10:
-            continue
-
-        Xv = X[valid]
-        yv = y[valid].values.reshape(-1, 1)
-
-        ys = StandardScaler().fit_transform(yv)
-
-        # ====================================================
-        # COMPONENT SELECTION
-        # ====================================================
-
-        max_components = min(4, Xv.shape[1])
-
-        cv = KFold(n_splits=5, shuffle=True, random_state=42)
-
-        component_results = []
-
-        for n_comp in range(1, max_components + 1):
-
-            pls_test = PLSRegression(n_components=n_comp)
-
-            yp_cv = cross_val_predict(pls_test, Xv, ys.ravel(), cv=cv)
-
-            r2_cv = r2_score(ys.ravel(), yp_cv)
-
-            component_results.append((n_comp, r2_cv))
-
-        best_n = max(component_results, key=lambda x: x[1])[0]
-
-        # ====================================================
-        # FINAL MODEL
-        # ====================================================
-
-        pls = PLSRegression(n_components=best_n)
-        pls.fit(Xv, ys)
-
-        vip_scores = calculate_vip(pls)
-
-        yp_train = pls.predict(Xv)
-        r2_train = r2_score(ys, yp_train)
-
-        yp_cv = cross_val_predict(pls, Xv, ys.ravel(), cv=cv)
-        r2_cv = r2_score(ys.ravel(), yp_cv)
-
-        rmse_cv = np.sqrt(mean_squared_error(ys.ravel(), yp_cv))
-
-        coefs = pls.coef_.flatten()
-
-        for i, param in enumerate(PREDICTORS.keys()):
-
-            results.append({
-                "Season": season,
-                "Band": band,
-                "Parameter": param,
-                "Coefficient": coefs[i],
-                "Abs_Coefficient": abs(coefs[i]),
-                "VIP": vip_scores[i],
-                "VIP_Class": classify_vip(vip_scores[i]),
-                "Influence_Class": classify_influence(coefs[i]),
-                "R2_Train": r2_train,
-                "R2_CV": r2_cv,
-                "RMSE_CV": rmse_cv,
-                "Components": best_n
-            })
-
-    return pd.DataFrame(results)
+    zorder=5
+)
 
 # ============================================================
-# RUN ALL SEASONS
+# PANEL B
 # ============================================================
 
-all_results = []
+r2 = df[
+    ["Season_Label", "R2_CV"]
+].dropna()
 
-for name, vals in SEASONS.items():
 
-    subset = df.copy() if name == "FULL_2015_2026" else seasonal_filter(df, *vals)
 
-    res = run_plsr(subset, name)
+BOX_COLOR = "#73C2FB"
 
-    if res is not None:
-        all_results.append(res)
+sns.boxplot(
+    data=r2,
 
-df_res = pd.concat(all_results, ignore_index=True)
+    x="Season_Label",
+    y="R2_CV",
+
+    order=season_order,
+
+    color=BOX_COLOR,
+
+    width=0.60,
+
+    showfliers=False,
+
+    linewidth=1.6,
+
+    medianprops={
+        "color": "#08306B",
+        "linewidth": 2.7
+    },
+
+    whiskerprops={
+        "linewidth": 1.5
+    },
+
+    capprops={
+        "linewidth": 1.5
+    },
+
+    ax=ax2
+)
 
 # ============================================================
-# SAVE RESULTS
+# MEAN VALUES
 # ============================================================
 
-df_res.to_csv(OUT_DIR / "PLSR_Advanced_Results.csv", index=False)
+means = (
+    r2.groupby("Season_Label")["R2_CV"]
+    .mean()
+    .reindex(season_order)
+)
 
-print("\n================ FULL ADVANCED RESULTS ================\n")
-print(df_res.head())
+ax2.scatter(
+    np.arange(len(means)),
+    means.values,
+
+    marker="D",
+
+    s=100,
+
+    facecolor="#FF8C42",
+
+    edgecolor="black",
+
+    linewidth=1.2,
+
+    zorder=5
+)
 
 # ============================================================
-# SUMMARY TABLE
+# PANEL B FORMATTING
 # ============================================================
 
-summary_df = []
+ax2.set_title(
+    "B  Seasonal Variation in Model Performance",
+    loc="left",
+    pad=12
+)
 
-for band in heat.index:
-    for param in heat.columns:
-        val = heat.loc[band, param]
-        summary_df.append({
-            "Band": band,
-            "Parameter": param,
-            "Coefficient": round(val, 3),
-            "Influence_Class": classify_influence(val)
-        })
+ax2.set_xlabel(
+    "Temporal Subset",
+    fontsize=13,
+    fontweight="bold",
+    color="black"
+)
 
-summary_df = pd.DataFrame(summary_df)
+ax2.set_ylabel(
+    r"$\mathbf{R^2_{CV}}$",
+    fontsize=13,
+    color="black"
+)
 
-summary_df.to_csv(OUT_DIR / "PLSR_Synthesis_Table.csv", index=False)
+ax2.set_ylim(
+    -0.6,
+    1.0
+)
 
-print("\n================ SYNTHESIS TABLE ================\n")
-print(summary_df)
+ax2.yaxis.grid(
+    True,
+    linestyle="-",
+    linewidth=0.6,
+    alpha=0.15
+)
 
-print("\nOUTPUT SAVED TO:", OUT_DIR)
+ax2.xaxis.grid(False)
+
+ax2.tick_params(
+    axis="both",
+    colors="black"
+)
+
+for label in ax2.get_xticklabels():
+
+    label.set_rotation(0)
+
+    label.set_horizontalalignment("center")
+
+    label.set_verticalalignment("top")
+
+    label.set_linespacing(1.25)
+
+    label.set_fontweight("bold")
+
+    label.set_fontsize(8.5)
+
+    label.set_color("black")
+
+for label in ax2.get_yticklabels():
+
+    label.set_fontweight("bold")
+
+    label.set_fontsize(11)
+
+    label.set_color("black")
+
+ax2.margins(x=0.03)
+# ============================================================
+# BETTER X-AXIS LABEL READABILITY
+# ============================================================
+# ============================================================
+# SHIFT OVERLAPPING LABELS DOWNWARD
+# ============================================================
+
+for label in ax2.get_xticklabels():
+
+    label.set_rotation(0)
+
+    label.set_ha("center")
+    label.set_va("top")
+
+    label.set_fontweight("bold")
+
+    label.set_fontsize(9.5)
+
+    label.set_color("black")
+
+for label in ax2.get_yticklabels():
+
+    label.set_fontweight("bold")
+
+    label.set_fontsize(11)
+
+    label.set_color("black")
+
+# little extra breathing space for two-line labels
+ax2.margins(x=0.04)
+
+# ============================================================
+# CLEAN LOOK
+# ============================================================
+
+sns.despine(ax=ax1)
+sns.despine(ax=ax2)
+
+# Extra bottom room for two-line seasonal labels
+plt.subplots_adjust(
+    bottom=0.14
+)
+
+plt.tight_layout()
+# ============================================================
+# SAVE
+# ============================================================
+
+plt.savefig(
+    OUT_DIR / "PLSR_Coefficient_R2CV_Final.pdf",
+    bbox_inches="tight"
+)
+
+plt.savefig(
+    OUT_DIR / "PLSR_Coefficient_R2CV_Final.png",
+    dpi=600,
+    bbox_inches="tight"
+)
+
+plt.savefig(
+    OUT_DIR / "PLSR_Coefficient_R2CV_Final.tif",
+    dpi=600,
+    bbox_inches="tight"
+)
+# ============================================================
+# SEASON LABELS
+# ============================================================
+
+
+# ============================================================
+# FIXED ORDER
+# ============================================================
+
+
+plt.show()
+
+print("\n✅ Figure saved successfully")
+print(OUT_DIR)
