@@ -106,20 +106,29 @@ scripts/
 - ERA5-Land
 - CAMS datasets
 
-### Python Packages
+## Computational Environment
 
-```bash
-pandas
-numpy
-matplotlib
-seaborn
-scikit-learn
-geopandas
-xarray
-python-docx
-openpyxl
-```
+Data processing and analysis were conducted using:
 
+- Python 3.11+
+- Google Earth Engine (JavaScript API)
+- Jupyter Notebook
+- QGIS
+
+### Core Python Packages
+
+- NumPy
+- Pandas
+- Matplotlib
+- Seaborn
+- Xarray
+- NetCDF4
+- GeoPandas
+- Shapely
+- Rtree
+- PyProj
+- Scikit-learn
+- python-docx
 ---
 
 ## Key Analyses
